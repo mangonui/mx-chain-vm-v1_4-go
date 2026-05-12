@@ -24,7 +24,7 @@
                 {
                     "creatorAddress": "address:digital_cash_owner_address",
                     "creatorNonce": "0",
-                    "newAddress": "sc:the_digital_cash_contract"
+                    "newAddress": "sc:digital_cash_contract"
                 }
             ]
         },

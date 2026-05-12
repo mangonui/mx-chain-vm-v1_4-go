@@ -29,7 +29,7 @@
             "id": "fund",
             "tx": {
                 "from": "address:acc1",
-                "to": "sc:the_digital_cash_contract",
+                "to": "sc:digital_cash_contract",
                 "egldValue": "5",
                 "function": "fund",
                 "arguments": [
@@ -51,7 +51,7 @@
         {
             "step": "checkState",
             "accounts": {
-                "sc:the_digital_cash_contract": {
+                "sc:digital_cash_contract": {
                     "nonce": "0",
                     "balance": "5",
                     "storage": {
@@ -95,7 +95,7 @@
             "id": "claim2",
             "tx": {
                 "from": "0xebfd923cd251f857ed7639e87143ac83f12f423827abc4a0cdde0119c3e37915",
-                "to": "sc:the_digital_cash_contract",
+                "to": "sc:digital_cash_contract",
                 "function": "claim",
                 "arguments": [
                     "0xdfc7efc43c36853ab160e783ad65766043734e30ce46188a448c44e2bbab9d81",
@@ -128,7 +128,7 @@
             "id": "claim3",
             "tx": {
                 "from": "0xebfd923cd251f857ed7639e87143ac83f12f423827abc4a0cdde0119c3e37915",
-                "to": "sc:the_digital_cash_contract",
+                "to": "sc:digital_cash_contract",
                 "function": "claim",
                 "arguments": [
                     "0xdfc7efc43c36853ab160e783ad65766043734e30ce46188a448c44e2bbab9d91",
@@ -161,7 +161,7 @@
             "id": "claim4",
             "tx": {
                 "from": "0xebfd923cd251f857ed7639e87143ac83f12f423827abc4a0cdde0119c3e37915",
-                "to": "sc:the_digital_cash_contract",
+                "to": "sc:digital_cash_contract",
                 "function": "claim",
                 "arguments": [
                     "0xdfc7efc43c36853ab160e783ad65766043734e30ce46188a448c44e2bbab9d91",
@@ -184,7 +184,7 @@
             "id": "claim5",
             "tx": {
                 "from": "0xebfd923cd251f857ed7639e87143ac83f12f423827abc4a0cdde0119c3e37915",
-                "to": "sc:the_digital_cash_contract",
+                "to": "sc:digital_cash_contract",
                 "function": "claim",
                 "arguments": [
                     "0xdfc7efc43c36853ab160e783ad65766043734e30ce46188a448c44e2bbab9d91",
@@ -205,7 +205,7 @@
         {
             "step": "checkState",
             "accounts": {
-                "sc:the_digital_cash_contract": {
+                "sc:digital_cash_contract": {
                     "nonce": "0",
                     "balance": "0",
                     "storage": {},

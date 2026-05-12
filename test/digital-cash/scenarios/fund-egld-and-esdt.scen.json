@@ -10,7 +10,7 @@
             "id": "fund",
             "tx": {
                 "from": "address:acc1",
-                "to": "sc:the_digital_cash_contract",
+                "to": "sc:digital_cash_contract",
                 "egldValue": "1,000,000",
                 "function": "fund",
                 "arguments": [
@@ -32,7 +32,7 @@
         {
             "step": "checkState",
             "accounts": {
-                "sc:the_digital_cash_contract": {
+                "sc:digital_cash_contract": {
                     "nonce": "0",
                     "balance": "1,000,000",
                     "storage": {
@@ -71,7 +71,7 @@
             "id": "fund-2",
             "tx": {
                 "from": "address:acc2",
-                "to": "sc:the_digital_cash_contract",
+                "to": "sc:digital_cash_contract",
                 "esdtValue": [
                     {
                         "tokenIdentifier": "str:CASHTOKEN-123456",
@@ -97,7 +97,7 @@
         {
             "step": "checkState",
             "accounts": {
-                "sc:the_digital_cash_contract": {
+                "sc:digital_cash_contract": {
                     "nonce": "0",
                     "balance": "1,000,000",
                     "esdt": {
