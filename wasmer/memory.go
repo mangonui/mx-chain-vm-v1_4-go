@@ -2,7 +2,6 @@ package wasmer
 
 import (
 	"fmt"
-	"reflect"
 	"unsafe"
 )
 
@@ -45,23 +44,88 @@ func (memory *Memory) Length() uint32 {
 }
 
 // Data returns a slice of bytes over the WebAssembly memory.
-//nolint:all
+//
+// DEPRECATED — see issues/ISSUE-012. New callers MUST use
+// [`Memory.ReadMemory`] which encapsulates the safe bounds-check +
+// defensive-copy pattern. Existing in-tree callers in
+// vmhost/contexts/runtime.go and wasmer/instance.go all make+copy the
+// range BEFORE returning, so they are safe-by-construction; the
+// deprecation prevents NEW callers from skipping that copy and
+// triggering a dangling-after-Grow UAF on the wasmer linear-memory
+// alias.
+//
+// nolint
 func (memory *Memory) Data() []byte {
 	if nil == memory.memory {
 		return make([]byte, 0)
 	}
 
-	var length = memory.Length()
-	var data = (*uint8)(cWasmerMemoryData(memory.memory))
+	length := memory.Length()
+	data := (*uint8)(cWasmerMemoryData(memory.memory))
+	if data == nil || length == 0 {
+		return []byte{}
+	}
 
-	var header reflect.SliceHeader
-	header = *(*reflect.SliceHeader)(unsafe.Pointer(&header))
+	// ISSUE-012 cleanup: replaced deprecated `reflect.SliceHeader` + dead
+	// self-assignment (was previously suppressed with //nolint:all) with
+	// `unsafe.Slice`. The unsafeptr/SliceHeader vet warning is now gone, so
+	// the broad nolint:all is downgraded to a plain nolint. Aliasing hazard
+	// unchanged — see deprecation note above; new callers must use ReadMemory.
+	return unsafe.Slice(data, length)
+}
 
-	header.Data = uintptr(unsafe.Pointer(data))
-	header.Len = int(length)
-	header.Cap = int(length)
+// ReadMemory returns a stable copy of the requested memory range.
+// Unlike Data(), the returned slice is owned by Go and remains valid
+// across subsequent memory.Grow() calls. ISSUE-012 / ISSUE-003.
+func (memory *Memory) ReadMemory(offset uint32, length uint32) ([]byte, error) {
+	if nil == memory.memory {
+		return nil, NewMemoryError("memory not initialised")
+	}
+	end := uint64(offset) + uint64(length)
+	totalLen := memory.Length()
+	if end > uint64(totalLen) {
+		return nil, NewMemoryError("memory range out of bounds")
+	}
+	if length == 0 {
+		return []byte{}, nil
+	}
+	data := (*uint8)(cWasmerMemoryData(memory.memory))
+	if data == nil {
+		return nil, NewMemoryError("memory data pointer is nil")
+	}
+	copied := make([]byte, length)
+	copy(copied, unsafe.Slice(data, totalLen)[offset:end])
+	return copied, nil
+}
 
-	return *(*[]byte)(unsafe.Pointer(&header))
+// WriteMemory copies `data` into wasm linear memory starting at `offset`.
+// Returns an error if the range doesn't fit in the current memory size;
+// callers that need growth must invoke Grow themselves before calling
+// WriteMemory (this matches the explicit per-host growth-policy pattern
+// in vmhost/contexts/runtime.go::MemStore).
+//
+// ISSUE-012. Encapsulates the slice-fetch + bounds + copy so callers
+// never hold the wasm-linear-memory alias across a possible Grow,
+// closing the dangling-after-Grow UAF window that Data() exposes.
+func (memory *Memory) WriteMemory(offset uint32, data []byte) error {
+	if nil == memory.memory {
+		return NewMemoryError("memory not initialised")
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	dataLen := uint32(len(data))
+	end := uint64(offset) + uint64(dataLen)
+	totalLen := memory.Length()
+	if end > uint64(totalLen) {
+		return NewMemoryError("memory range out of bounds")
+	}
+	dataPtr := (*uint8)(cWasmerMemoryData(memory.memory))
+	if dataPtr == nil {
+		return NewMemoryError("memory data pointer is nil")
+	}
+	copy(unsafe.Slice(dataPtr, totalLen)[offset:end], data)
+	return nil
 }
 
 // Grow the memory by a number of pages (65kb each).

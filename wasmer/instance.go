@@ -427,23 +427,29 @@ func (instance *Instance) Reset() bool {
 	return result == cWasmerOk
 }
 
-// SetMemory sets the memory for the instance returns true if success
+// SetMemory sets the memory for the instance returns true if success.
+//
+// ISSUE-012: routes through MemoryHandler.WriteMemory instead of slicing
+// into the wasm-linear-memory alias returned by Data(). The "len(data)
+// must equal full memory size" precondition is preserved verbatim — this
+// is a whole-memory blit, not a partial write — so the bounds check
+// stays at the call site rather than being subsumed by WriteMemory's
+// shorter-than-memory check.
 func (instance *Instance) SetMemory(data []byte) bool {
 	if instance.instance == nil {
 		return false
 	}
 
-	if check.IfNil(instance.GetMemory()) {
+	mem := instance.GetMemory()
+	if check.IfNil(mem) {
 		return false
 	}
 
-	memory := instance.GetMemory().Data()
-	if len(memory) != len(data) {
+	if mem.Length() != uint32(len(data)) {
 		return false
 	}
 
-	copy(memory, data)
-	return true
+	return mem.WriteMemory(0, data) == nil
 }
 
 // IsInterfaceNil returns true if underlying object is nil

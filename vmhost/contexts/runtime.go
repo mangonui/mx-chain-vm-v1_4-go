@@ -6,7 +6,6 @@ import (
 	"fmt"
 	builtinMath "math"
 	"math/big"
-	"unsafe"
 
 	"github.com/multiversx/mx-chain-core-go/core/check"
 	logger "github.com/multiversx/mx-chain-logger-go"
@@ -55,6 +54,33 @@ type runtimeContext struct {
 	hasher          vmhost.HashComputer
 
 	errors vmhost.WrappableError
+
+	// ISSUE-013: handle into globalVMHostRegistry. Replaces the prior
+	// `uintptr(unsafe.Pointer(&context.host))` round-trip used at every
+	// SetContextData call site. Registered lazily on first use via
+	// hostRegistryHandle(); reused across subsequent SetContextData
+	// calls so we don't leak a handle per call.
+	//
+	// The runtimeContext lifecycle has no explicit destroy method (it's
+	// GC-implicit in legacy v1_x), so we don't Release this handle. The
+	// resulting "leak" is bounded to ~1 handle per VM-host instance —
+	// typically 1 per chain-node process. See
+	// vmhost/vmHostRegistry.go for the full lifecycle note.
+	hostHandle uint64
+}
+
+// hostRegistryHandle returns a stable registry handle for context.host,
+// registering on first call and reusing thereafter. Callers MUST NOT
+// cache the returned uintptr beyond the immediate SetContextData call;
+// the handle itself is stable but the storage slot at the receiving end
+// is owned by wasmer.
+//
+// ISSUE-013.
+func (context *runtimeContext) hostRegistryHandle() uintptr {
+	if context.hostHandle == 0 {
+		context.hostHandle = vmhost.RegisterVMHostHandle(context.host)
+	}
+	return uintptr(context.hostHandle)
 }
 
 // NewRuntimeContext creates a new runtimeContext
@@ -199,8 +225,14 @@ func (context *runtimeContext) makeInstanceFromCompiledCode(gasLimit uint64, new
 
 	context.iTracker.SetNewInstance(newInstance, Precompiled)
 
-	hostReference := uintptr(unsafe.Pointer(&context.host))
-	context.iTracker.Instance().SetContextData(hostReference)
+	// ISSUE-013: pass a registry handle (uint64 cast to uintptr) instead
+	// of the address of the host interface field. Wasmer stores the
+	// uintptr verbatim and returns it through the cgo callback, where
+	// GetVMHost reads it as a uint64 and looks up the host in the
+	// registry. The previous `&context.host` pattern dereferenced a Go
+	// heap address through a uintptr, violating Go's `unsafe` rules and
+	// breaking on any executor lifecycle change toward short-lived hosts.
+	context.iTracker.Instance().SetContextData(context.hostRegistryHandle())
 	context.verifyCode = false
 
 	context.saveWarmInstance()
@@ -236,8 +268,14 @@ func (context *runtimeContext) makeInstanceFromContractByteCode(contract []byte,
 		context.iTracker.SetCodeHash(codeHash)
 	}
 
-	hostReference := uintptr(unsafe.Pointer(&context.host))
-	context.iTracker.Instance().SetContextData(hostReference)
+	// ISSUE-013: pass a registry handle (uint64 cast to uintptr) instead
+	// of the address of the host interface field. Wasmer stores the
+	// uintptr verbatim and returns it through the cgo callback, where
+	// GetVMHost reads it as a uint64 and looks up the host in the
+	// registry. The previous `&context.host` pattern dereferenced a Go
+	// heap address through a uintptr, violating Go's `unsafe` rules and
+	// breaking on any executor lifecycle change toward short-lived hosts.
+	context.iTracker.Instance().SetContextData(context.hostRegistryHandle())
 
 	if newCode {
 		err = context.VerifyContractCode()
@@ -281,8 +319,14 @@ func (context *runtimeContext) useWarmInstanceIfExists(gasLimit uint64, newCode 
 	context.iTracker.Instance().SetGasLimit(gasLimit)
 	context.SetRuntimeBreakpointValue(vmhost.BreakpointNone)
 
-	hostReference := uintptr(unsafe.Pointer(&context.host))
-	context.iTracker.Instance().SetContextData(hostReference)
+	// ISSUE-013: pass a registry handle (uint64 cast to uintptr) instead
+	// of the address of the host interface field. Wasmer stores the
+	// uintptr verbatim and returns it through the cgo callback, where
+	// GetVMHost reads it as a uint64 and looks up the host in the
+	// registry. The previous `&context.host` pattern dereferenced a Go
+	// heap address through a uintptr, violating Go's `unsafe` rules and
+	// breaking on any executor lifecycle change toward short-lived hosts.
+	context.iTracker.Instance().SetContextData(context.hostRegistryHandle())
 	context.verifyCode = false
 	logRuntime.Trace("start instance", "from", "warm", "id", context.iTracker.Instance().ID())
 	return true
@@ -1062,19 +1106,23 @@ func (context *runtimeContext) IsFunctionImported(name string) bool {
 }
 
 // MemLoad returns the contents from the given offset of the WASM memory.
+//
+// ISSUE-012: routes through MemoryHandler.ReadMemory so the wasm-linear-
+// memory alias never escapes this function. The tail-clamping behavior
+// (when requestedEnd exceeds memoryLength, return the partial range
+// from offset..memoryLength rather than erroring) is preserved by
+// computing the safe length first and then doing a single ReadMemory.
 func (context *runtimeContext) MemLoad(offset int32, length int32) ([]byte, error) {
 	if length == 0 {
 		return []byte{}, nil
 	}
 
 	memory := context.iTracker.Instance().GetInstanceCtxMemory()
-	memoryView := memory.Data()
 	memoryLength := memory.Length()
 	requestedEnd := math.AddInt32(offset, length)
 
 	isOffsetTooSmall := offset < 0
 	isOffsetTooLarge := uint32(offset) > memoryLength
-	isRequestedEndTooLarge := uint32(requestedEnd) > memoryLength
 	isLengthNegative := length < 0
 
 	if isOffsetTooSmall || isOffsetTooLarge {
@@ -1084,17 +1132,12 @@ func (context *runtimeContext) MemLoad(offset int32, length int32) ([]byte, erro
 		return nil, fmt.Errorf("mem load: %w", vmhost.ErrNegativeLength)
 	}
 
-	var result []byte
-
-	if isRequestedEndTooLarge {
-		result = make([]byte, memoryLength-uint32(offset))
-		copy(result, memoryView[offset:])
-	} else {
-		result = make([]byte, requestedEnd-offset)
-		copy(result, memoryView[offset:requestedEnd])
+	actualLength := uint32(length)
+	if uint32(requestedEnd) > memoryLength {
+		actualLength = memoryLength - uint32(offset)
 	}
 
-	return result, nil
+	return memory.ReadMemory(uint32(offset), actualLength)
 }
 
 // MemLoadMultiple returns multiple byte slices loaded from the WASM memory, starting at the given offset and having the provided lengths.
@@ -1119,6 +1162,15 @@ func (context *runtimeContext) MemLoadMultiple(offset int32, lengths []int32) ([
 }
 
 // MemStore stores the given data in the WASM memory at the given offset.
+//
+// ISSUE-012: routes through MemoryHandler.WriteMemory so the wasm-linear-
+// memory alias never escapes this function. The previous implementation
+// fetched memory.Data() before Grow and re-fetched after — correct, but
+// fragile (a future refactor that forgets the re-fetch would silently
+// write to freed memory). WriteMemory acquires the slice fresh
+// internally on every call, removing the foot-gun. Grow policy
+// (single-page, gated by RuntimeMemStoreLimitFlag) is preserved here
+// at the host level.
 func (context *runtimeContext) MemStore(offset int32, data []byte) error {
 	dataLength := int32(len(data))
 	if dataLength == 0 {
@@ -1126,7 +1178,6 @@ func (context *runtimeContext) MemStore(offset int32, data []byte) error {
 	}
 
 	memory := context.iTracker.Instance().GetInstanceCtxMemory()
-	memoryView := memory.Data()
 	memoryLength := memory.Length()
 	requestedEnd := math.AddInt32(offset, dataLength)
 
@@ -1148,7 +1199,6 @@ func (context *runtimeContext) MemStore(offset int32, data []byte) error {
 			return err
 		}
 
-		memoryView = memory.Data()
 		memoryLength = memory.Length()
 	}
 
@@ -1157,8 +1207,7 @@ func (context *runtimeContext) MemStore(offset int32, data []byte) error {
 		return vmhost.ErrBadUpperBounds
 	}
 
-	copy(memoryView[offset:requestedEnd], data)
-	return nil
+	return memory.WriteMemory(uint32(offset), data)
 }
 
 // AddError adds an error to the global error list on runtime context

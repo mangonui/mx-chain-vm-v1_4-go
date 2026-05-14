@@ -97,7 +97,13 @@ func InverseBytes(data []byte) []byte {
 	return invBytes
 }
 
-// GetSCCode returns the SC code from a given file
+// GetSCCode returns the SC code from a given file.
+//
+// Test-fixture helper, NOT a production code loader. Production bytecode
+// comes from chain state via runtimeContext.GetSCCode() (proper error
+// return). Callers of this helper panic on empty result, so the silent
+// read-error swallow surfaces upstream as a clear panic. See
+// issues/ISSUE-033.
 func GetSCCode(fileName string) []byte {
 	code, _ := os.ReadFile(filepath.Clean(fileName))
 	return code
@@ -145,16 +151,32 @@ type nilInterfaceChecker interface {
 	IsInterfaceNil() bool
 }
 
-// GetVMHost returns the vm Context from the vm context map
+// GetVMHost returns the VMHost associated with the wasmer instance
+// context backing the given pointer.
 //
-//nolint:all
+// ISSUE-013 (post-fix): the wasmer instance context's data slot now
+// holds a registry HANDLE (uint64), not a Go heap ADDRESS. We read the
+// handle and look it up in the package-global vmHostRegistry. A miss
+// panics with a clear message — every caller of GetVMHost in
+// vmhost/vmhooks/*.go assumes the returned interface is non-nil and
+// immediately invokes a method on it; returning nil would defer the
+// panic to a cryptic nil-interface dispatch elsewhere, so failing
+// loudly here is strictly better debuggability for the same
+// termination behaviour.
+//
+// The previous `*(*VMHost)(unsafe.Pointer(ptr))` deref (uintptr →
+// *VMHost → VMHost value) is gone. `go vet`'s `unsafeptr` warning at
+// this site is now silent, so we can downgrade `//nolint:all` to a
+// plain `// nolint`.
+//
+// nolint
 func GetVMHost(vmHostPtr unsafe.Pointer) VMHost {
 	if logVMHookCalls {
 		logVMHookCall()
 	}
 	instCtx := wasmer.IntoInstanceContext(vmHostPtr)
-	var ptr = *(*uintptr)(instCtx.Data())
-	return *(*VMHost)(unsafe.Pointer(ptr))
+	handle := uint64(*(*uintptr)(instCtx.Data()))
+	return lookupVMHostOrPanic(handle)
 }
 
 // GetBlockchainContext returns the blockchain context
