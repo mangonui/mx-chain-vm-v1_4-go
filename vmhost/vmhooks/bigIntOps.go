@@ -68,6 +68,7 @@ import (
 )
 
 const (
+	bigIntByteLenForNormalCost        = 32
 	bigIntNewName                     = "bigIntNew"
 	bigIntUnsignedByteLengthName      = "bigIntUnsignedByteLength"
 	bigIntSignedByteLengthName        = "bigIntSignedByteLength"
@@ -491,7 +492,7 @@ func v1_4_bigIntGetESDTExternalBalance(context unsafe.Pointer, addressOffset int
 	if vmhost.WithFault(err, context, runtime.BigIntAPIErrorShouldFailExecution()) {
 		return
 	}
-	if esdtData == nil {
+	if esdtData == nil || esdtData.Value == nil {
 		return
 	}
 
@@ -1160,8 +1161,15 @@ func v1_4_bigIntShl(context unsafe.Pointer, destinationHandle, opHandle, bits in
 		_ = vmhost.WithFault(vmhost.ErrShiftNegative, context, runtime.BigIntAPIErrorShouldFailExecution())
 		return
 	}
+	resultByteLen := (a.BitLen() + int(bits)) / 8
+	if resultByteLen > bigIntByteLenForNormalCost {
+		gasToUse = math.MulUint64(uint64(resultByteLen), metering.GasSchedule().BigIntAPICost.CopyPerByteForTooBig)
+		err = metering.UseGasBounded(gasToUse)
+		if vmhost.WithFault(err, context, runtime.BigIntAPIErrorShouldFailExecution()) {
+			return
+		}
+	}
 	dest.Lsh(a, uint(bits))
-	managedType.ConsumeGasForBigIntCopy(dest)
 
 }
 

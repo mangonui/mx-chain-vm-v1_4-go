@@ -187,6 +187,9 @@ const (
 	getOriginalTxHashName            = "getOriginalTxHash"
 )
 
+// one memory page 64KB / 4 as min bytes per argument
+const maxNumArgumentsFromMemory = 16000000
+
 var logEEI = logger.GetOrCreate("vm/eei")
 
 func getESDTTransferFromInputFailIfWrongIndex(host vmhost.VMHost, index int32) *vmcommon.ESDTTransfer {
@@ -792,6 +795,10 @@ func v1_4_getESDTBalance(
 	if vmhost.WithFault(err, context, runtime.BaseOpsErrorShouldFailExecution()) {
 		return -1
 	}
+	if esdtData == nil || esdtData.Value == nil {
+		vmhost.WithFaultIfFailAlwaysActive(vmhost.ErrNilESDTData, context, runtime.BaseOpsErrorShouldFailExecution())
+		return -1
+	}
 	err = runtime.MemStore(resultOffset, esdtData.Value.Bytes())
 	if vmhost.WithFault(err, context, runtime.BaseOpsErrorShouldFailExecution()) {
 		return -1
@@ -902,6 +909,10 @@ func v1_4_getESDTTokenData(
 	esdtData, err := getESDTDataFromBlockchainHook(context, addressOffset, tokenIDOffset, tokenIDLen, nonce)
 
 	if vmhost.WithFault(err, context, runtime.BaseOpsErrorShouldFailExecution()) {
+		return -1
+	}
+	if esdtData == nil || esdtData.Value == nil {
+		vmhost.WithFaultIfFailAlwaysActive(vmhost.ErrNilESDTData, context, runtime.BaseOpsErrorShouldFailExecution())
 		return -1
 	}
 
@@ -1037,11 +1048,10 @@ func v1_4_transferValue(context unsafe.Pointer, destOffset int32, valueOffset in
 }
 
 type indirectContractCallArguments struct {
-	dest      []byte
-	value     *big.Int
-	function  []byte
-	args      [][]byte
-	actualLen int32
+	dest     []byte
+	value    *big.Int
+	function []byte
+	args     [][]byte
 }
 
 func extractIndirectContractCallArgumentsWithValue(
@@ -1101,7 +1111,6 @@ func extractIndirectContractCallArguments(
 	dataOffset int32,
 ) (*indirectContractCallArguments, error) {
 	runtime := host.Runtime()
-	metering := host.Metering()
 
 	dest, err := runtime.MemLoad(destOffset, vmhost.AddressLen)
 	if err != nil {
@@ -1123,7 +1132,7 @@ func extractIndirectContractCallArguments(
 		return nil, err
 	}
 
-	args, actualLen, err := getArgumentsFromMemory(
+	args, _, err := getArgumentsFromMemory(
 		host,
 		numArguments,
 		argumentsLengthOffset,
@@ -1133,15 +1142,11 @@ func extractIndirectContractCallArguments(
 		return nil, err
 	}
 
-	gasToUse := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
-	metering.UseAndTraceGas(gasToUse)
-
 	return &indirectContractCallArguments{
-		dest:      dest,
-		value:     value,
-		function:  function,
-		args:      args,
-		actualLen: actualLen,
+		dest:     dest,
+		value:    value,
+		function: function,
+		args:     args,
 	}, nil
 }
 
@@ -1368,10 +1373,7 @@ func v1_4_multiTransferESDTNFTExecute(
 		return 1
 	}
 
-	gasToUse := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(callArgs.actualLen))
-	metering.UseAndTraceGas(gasToUse)
-
-	transferArgs, actualLen, err := getArgumentsFromMemory(
+	transferArgs, _, err := getArgumentsFromMemory(
 		host,
 		numTokenTransfers*parsers.ArgsPerTransfer,
 		tokenTransfersArgsLengthOffset,
@@ -1381,9 +1383,6 @@ func v1_4_multiTransferESDTNFTExecute(
 	if vmhost.WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return 1
 	}
-
-	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
-	metering.UseAndTraceGas(gasToUse)
 
 	transfers := make([]*vmcommon.ESDTTransfer, numTokenTransfers)
 	for i := int32(0); i < numTokenTransfers; i++ {
@@ -1426,8 +1425,6 @@ func TransferESDTNFTExecuteWithHost(
 	dataOffset int32,
 ) int32 {
 	runtime := host.Runtime()
-	metering := host.Metering()
-
 	tokenIdentifier, executeErr := runtime.MemLoad(tokenIDOffset, tokenIDLen)
 	if vmhost.WithFaultAndHost(host, executeErr, runtime.BaseOpsErrorShouldFailExecution()) {
 		return 1
@@ -1438,9 +1435,6 @@ func TransferESDTNFTExecuteWithHost(
 	if vmhost.WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return 1
 	}
-
-	gasToUse := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(callArgs.actualLen))
-	metering.UseAndTraceGas(gasToUse)
 
 	transfer := &vmcommon.ESDTTransfer{
 		ESDTValue:      callArgs.value,
@@ -1656,15 +1650,12 @@ func v1_4_upgradeContract(
 		return
 	}
 
-	data, actualLen, err := getArgumentsFromMemory(
+	data, _, err := getArgumentsFromMemory(
 		host,
 		numArguments,
 		argumentsLengthOffset,
 		dataOffset,
 	)
-
-	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
-	metering.UseAndTraceGas(gasToUse)
 
 	if vmhost.WithFault(err, context, runtime.BaseOpsErrorShouldFailExecution()) {
 		return
@@ -1717,15 +1708,12 @@ func v1_4_upgradeFromSourceContract(
 		return
 	}
 
-	data, actualLen, err := getArgumentsFromMemory(
+	data, _, err := getArgumentsFromMemory(
 		host,
 		numArguments,
 		argumentsLengthOffset,
 		dataOffset,
 	)
-
-	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
-	metering.UseAndTraceGas(gasToUse)
 
 	if vmhost.WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return
@@ -2463,7 +2451,7 @@ func v1_4_writeEventLog(
 	output := vmhost.GetOutputContext(context)
 	metering := vmhost.GetMeteringContext(context)
 
-	topics, topicDataTotalLen, err := getArgumentsFromMemory(
+	topics, _, err := getArgumentsFromMemory(
 		host,
 		numTopics,
 		topicLengthsOffset,
@@ -2481,7 +2469,7 @@ func v1_4_writeEventLog(
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.Log
 	gasForData := math.MulUint64(
 		metering.GasSchedule().BaseOperationCost.DataCopyPerByte,
-		uint64(topicDataTotalLen+dataLength))
+		uint64(dataLength))
 	gasToUse = math.AddUint64(gasToUse, gasForData)
 	metering.UseGasAndAddTracedGas(writeEventLogName, gasToUse)
 
@@ -3105,15 +3093,12 @@ func v1_4_createContract(
 		return 1
 	}
 
-	data, actualLen, err := getArgumentsFromMemory(
+	data, _, err := getArgumentsFromMemory(
 		host,
 		numArguments,
 		argumentsLengthOffset,
 		dataOffset,
 	)
-
-	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
-	metering.UseAndTraceGas(gasToUse)
 
 	if vmhost.WithFault(err, context, runtime.BaseOpsErrorShouldFailExecution()) {
 		return 1
@@ -3169,15 +3154,12 @@ func v1_4_deployFromSourceContract(
 		return 1
 	}
 
-	data, actualLen, err := getArgumentsFromMemory(
+	data, _, err := getArgumentsFromMemory(
 		host,
 		numArguments,
 		argumentsLengthOffset,
 		dataOffset,
 	)
-
-	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
-	metering.UseAndTraceGas(gasToUse)
 
 	if vmhost.WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return 1
@@ -3409,6 +3391,20 @@ func getArgumentsFromMemory(
 	if numArguments < 0 {
 		return nil, 0, fmt.Errorf("negative numArguments (%d)", numArguments)
 	}
+	if numArguments > maxNumArgumentsFromMemory {
+		return nil, 0, fmt.Errorf("numArguments %d exceeds maximum %d", numArguments, maxNumArgumentsFromMemory)
+	}
+
+	metering := host.Metering()
+	dataCopyGas := metering.GasSchedule().BaseOperationCost.DataCopyPerByte
+	lengthsByteLen := uint64(numArguments) * 4
+	gasToUse := math.MulUint64(dataCopyGas, lengthsByteLen)
+	if gasToUse > 0 {
+		err := metering.UseGasBounded(gasToUse)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
 
 	argumentsLengthData, err := runtime.MemLoad(argumentsLengthOffset, numArguments*4)
 	if err != nil {
@@ -3416,17 +3412,32 @@ func getArgumentsFromMemory(
 	}
 
 	argumentLengths := createInt32Array(argumentsLengthData, numArguments)
+	const maxInt32AsInt64 int64 = 2147483647
+	totalArgumentBytes64 := int64(0)
+	for _, length := range argumentLengths {
+		if length < 0 {
+			return nil, 0, fmt.Errorf("negative argument length (%d)", length)
+		}
+		totalArgumentBytes64 += int64(length)
+		if totalArgumentBytes64 > maxInt32AsInt64 {
+			return nil, 0, fmt.Errorf("total argument bytes exceeds int32 max")
+		}
+	}
+
+	gasToUse = math.MulUint64(dataCopyGas, uint64(totalArgumentBytes64))
+	if gasToUse > 0 {
+		err = metering.UseGasBounded(gasToUse)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
 	data, err := runtime.MemLoadMultiple(dataOffset, argumentLengths)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	totalArgumentBytes := int32(0)
-	for _, length := range argumentLengths {
-		totalArgumentBytes += length
-	}
-
-	return data, totalArgumentBytes, nil
+	return data, int32(totalArgumentBytes64), nil
 }
 
 func createInt32Array(rawData []byte, numIntegers int32) []int32 {

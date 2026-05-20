@@ -47,12 +47,20 @@ func getESDTRoles(dataBuffer []byte) int64 {
 		// first character before each role is a \n, so we skip it
 		currentIndex += 1
 
+		if currentIndex >= valueLen {
+			return 0
+		}
+
 		// next is the length of the role as string
 		roleLen := int(dataBuffer[currentIndex])
 		currentIndex += 1
 
 		// next is role's ASCII string representation
 		endIndex := currentIndex + roleLen
+		if endIndex > valueLen {
+			return 0
+		}
+
 		roleName := dataBuffer[currentIndex:endIndex]
 		currentIndex = endIndex
 
