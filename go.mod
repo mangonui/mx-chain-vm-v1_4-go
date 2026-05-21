@@ -61,17 +61,17 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/multiversx/mx-chain-core-go => github.com/mangonui/mx-chain-core-go v0.0.0-20260512153159-d696dc43bf6d
+replace github.com/multiversx/mx-chain-core-go => github.com/mangonui/mx-chain-core-go v0.0.0-20260514035830-0e3a1d482b18
 
-replace github.com/multiversx/mx-chain-logger-go => github.com/mangonui/mx-chain-logger-go v0.0.0-20260512025801-4b00900c17b0
+replace github.com/multiversx/mx-chain-logger-go => github.com/mangonui/mx-chain-logger-go v0.0.0-20260514040119-0a9c9ca2e4eb
 
 replace github.com/multiversx/mx-chain-crypto-go => github.com/mangonui/mx-chain-crypto-go v0.0.0-20260521050229-0071ade87e85
 
-replace github.com/multiversx/mx-chain-storage-go => github.com/mangonui/mx-chain-storage-go v0.0.0-20260512042020-b4fbd05cabe1
+replace github.com/multiversx/mx-chain-storage-go => github.com/mangonui/mx-chain-storage-go v0.0.0-20260514040357-ab466093f27c
 
-replace github.com/multiversx/mx-chain-vm-common-go => github.com/mangonui/mx-chain-vm-common-go v0.0.0-20260512042020-b605c960cbd0
+replace github.com/multiversx/mx-chain-vm-common-go => github.com/mangonui/mx-chain-vm-common-go v0.0.0-20260521073214-bfcbe2da66a4
 
-replace github.com/multiversx/mx-chain-scenario-go => github.com/mangonui/mx-chain-scenario-go v0.0.0-20260520094333-f2be87c9c9ce
+replace github.com/multiversx/mx-chain-scenario-go => github.com/mangonui/mx-chain-scenario-go v0.0.0-20260521073255-89bc1d0b5adf
 
 replace github.com/multiversx/mx-components-big-int => github.com/mangonui/mx-components-big-int v0.0.0-20260507133911-536f4799b94f
 
