@@ -290,6 +290,20 @@ func (host *vmHost) InitState() {
 
 func (host *vmHost) close() {
 	host.runtimeContext.ClearWarmInstanceCache()
+	releaseRuntimeHostRegistryHandle(host.runtimeContext)
+}
+
+type runtimeHostRegistryHandleReleaser interface {
+	ReleaseHostRegistryHandle()
+}
+
+func releaseRuntimeHostRegistryHandle(runtimeContext interface{}) {
+	releaser, ok := runtimeContext.(runtimeHostRegistryHandleReleaser)
+	if !ok {
+		return
+	}
+
+	releaser.ReleaseHostRegistryHandle()
 }
 
 // Close will close all underlying processes

@@ -14,13 +14,10 @@ import (
 // runtimeContext's GC-eligibility.
 //
 // Lifecycle. The legacy v1_x VMs do NOT expose an explicit
-// runtimeContext destroy method; the context lifecycle is GC-implicit.
-// This means we cannot deterministically Release a handle on
-// teardown. We accept this — runtimeContexts are created ~once per
-// VM-host instance (typically 1 per chain-node process), so the
-// "leak" is bounded to a handful of entries over the process lifetime.
-// If a future refactor introduces explicit runtimeContext teardown,
-// add `globalVMHostRegistry.Release(context.hostHandle)` there.
+// runtimeContext destroy method, but vmHost.Close() now explicitly asks
+// the runtime context to release its handle. This keeps the registry
+// bounded even in integrations that repeatedly create and close legacy
+// VM hosts in one process.
 //
 // Concurrency. Same RWMutex pattern as wasmer2's vmHooksRegistry.
 // Hook callbacks are read-heavy (Lookup); registration happens once
@@ -67,9 +64,6 @@ func (r *vmHostRegistry) Lookup(id uint64) VMHost {
 
 // Release frees a handle. Subsequent Lookup(id) returns nil. Idempotent
 // (delete from a Go map on a missing key is a no-op).
-//
-// Currently NOT called by the legacy VM lifecycle; see Lifecycle note
-// in the package-level comment above.
 func (r *vmHostRegistry) Release(id uint64) {
 	r.mu.Lock()
 	delete(r.entries, id)
@@ -93,6 +87,12 @@ func lookupVMHostOrPanic(handle uint64) VMHost {
 // See lifecycle note in the package-level comment.
 func RegisterVMHostHandle(host VMHost) uint64 {
 	return globalVMHostRegistry.Register(host)
+}
+
+// ReleaseVMHostHandle releases a previously registered VMHost handle.
+// It is idempotent; releasing an unknown or already-released handle is a no-op.
+func ReleaseVMHostHandle(handle uint64) {
+	globalVMHostRegistry.Release(handle)
 }
 
 func vmHostRegistryMissPanicMessage(handle uint64) string {

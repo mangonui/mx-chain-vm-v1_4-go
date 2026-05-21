@@ -61,10 +61,7 @@ type runtimeContext struct {
 	// hostRegistryHandle(); reused across subsequent SetContextData
 	// calls so we don't leak a handle per call.
 	//
-	// The runtimeContext lifecycle has no explicit destroy method (it's
-	// GC-implicit in legacy v1_x), so we don't Release this handle. The
-	// resulting "leak" is bounded to ~1 handle per VM-host instance —
-	// typically 1 per chain-node process. See
+	// Released by ReleaseHostRegistryHandle during host shutdown. See
 	// vmhost/vmHostRegistry.go for the full lifecycle note.
 	hostHandle uint64
 }
@@ -81,6 +78,17 @@ func (context *runtimeContext) hostRegistryHandle() uintptr {
 		context.hostHandle = vmhost.RegisterVMHostHandle(context.host)
 	}
 	return uintptr(context.hostHandle)
+}
+
+// ReleaseHostRegistryHandle releases the VMHost registry handle associated
+// with this runtime context. It is safe to call multiple times.
+func (context *runtimeContext) ReleaseHostRegistryHandle() {
+	if context.hostHandle == 0 {
+		return
+	}
+
+	vmhost.ReleaseVMHostHandle(context.hostHandle)
+	context.hostHandle = 0
 }
 
 // NewRuntimeContext creates a new runtimeContext
